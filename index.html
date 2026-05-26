@@ -1609,6 +1609,12 @@
       const piece = getPieceAt(file, rank);
       if (!piece || piece.color !== currentTurn) return;
 
+      // In multiplayer, only allow selecting your own color
+      if (ws && ws.readyState === WebSocket.OPEN && myColor && piece.color !== myColor) {
+        updateMultiplayerStatus("You can only move your own pieces");
+        return;
+      }
+
       const mesh = pieceMeshes.find(m => {
         const px = Math.round(m.position.x + 3.5);
         const pz = Math.round(7 - (m.position.z + 3.5));
@@ -2196,7 +2202,22 @@
     }
 
     // Auto-start
-    window.addEventListener('DOMContentLoaded', startGame);
+    window.addEventListener('DOMContentLoaded', () => {
+      startGame();
+
+      // === Auto-connect when served from the LAN server ===
+      // If the game was opened via http/https (not file://), try to connect automatically.
+      if (location.protocol.startsWith('http')) {
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const autoUrl = `${wsProtocol}//${location.host}`;
+
+        // Small delay so the game UI has time to render
+        setTimeout(() => {
+          updateMultiplayerStatus('Connecting to game server...');
+          connectToServer(autoUrl, false);
+        }, 800);
+      }
+    });
 
     // Expose a couple helpers for debugging
     window.CHESS_DEBUG = {
@@ -2257,7 +2278,7 @@
 
         ws.onopen = () => {
           isHost = asHost;
-          updateMultiplayerStatus('Connected as ' + (asHost ? 'Host (White)' : 'Guest'));
+          updateMultiplayerStatus('Connected to server...');
           console.log('[LAN] Connected to', url);
         };
 
@@ -2291,14 +2312,14 @@
     function handleNetworkMessage(msg) {
       if (msg.type === 'welcome') {
         myColor = msg.color;
-        updateMultiplayerStatus('Connected as ' + (myColor === 'w' ? 'White' : 'Black'));
+        updateMultiplayerStatus('Connected as ' + (myColor === 'w' ? 'White' : 'Black') + ' — Waiting for opponent...');
         return;
       }
 
       if (msg.type === 'gameStart') {
         myColor = msg.yourColor;
         const isMyTurn = currentTurn === myColor;
-        updateMultiplayerStatus('Game started — ' + (isMyTurn ? "Your turn (White)" : "Opponent's turn"));
+        updateMultiplayerStatus('Game started — You are ' + (myColor === 'w' ? 'White' : 'Black') + (isMyTurn ? ' (Your turn)' : ''));
         return;
       }
 
