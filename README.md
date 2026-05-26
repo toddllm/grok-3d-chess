@@ -2,7 +2,7 @@
 
 A fully playable 3D chess game built with vanilla JavaScript and Three.js.
 
-![3D Chess Screenshot](https://raw.githubusercontent.com/tdeshane/grok-3d-chess/main/screenshot.png)
+![3D Chess Screenshot](./screenshot.png)
 
 ## Features
 
