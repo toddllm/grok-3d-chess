@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 8765;
 const wss = new WebSocketServer({ port: PORT });
 
 let players = []; // max 2
-let gameState = null; // will hold the authoritative game state later
+let currentTurn = 'w'; // Simple turn tracking for relay
 
 console.log(`Chess LAN server running on port ${PORT}`);
 console.log(`Other player should connect to your local IP on port ${PORT}`);
@@ -38,8 +38,9 @@ wss.on('connection', (ws) => {
     message: `You are playing as ${color === 'w' ? 'White' : 'Black'}`
   }));
 
-  // If second player joins, notify both
+  // If second player joins, notify both and reset turn
   if (players.length === 2) {
+    currentTurn = 'w';
     players.forEach(p => {
       p.ws.send(JSON.stringify({
         type: 'gameStart',
@@ -75,11 +76,21 @@ function handleMessage(playerId, message) {
   if (!player) return;
 
   if (message.type === 'move') {
-    // For the absolute simplest first version, we just relay the move.
-    // Proper validation will be added in the next iteration.
+    // Basic turn enforcement on the server (relay version)
+    if (player.color !== currentTurn) {
+      player.ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: 'Not your turn' 
+      }));
+      return;
+    }
+
     console.log(`Move from ${player.color}:`, message);
 
-    // Broadcast to the other player
+    // Switch turn
+    currentTurn = currentTurn === 'w' ? 'b' : 'w';
+
+    // Broadcast to the other player only
     players.forEach(p => {
       if (p.id !== playerId) {
         p.ws.send(JSON.stringify({

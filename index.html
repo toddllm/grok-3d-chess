@@ -1696,10 +1696,37 @@
         return;
       }
 
+      // Basic multiplayer turn enforcement (client side)
+      if (ws && ws.readyState === WebSocket.OPEN && piece.color !== myColor) {
+        updateMultiplayerStatus("It's not your turn");
+        clearSelection();
+        return;
+      }
+
       const legalMoves = getLegalMoves(fromFile, fromRank);
       const targetMove = legalMoves.find(m => m.file === file && m.rank === rank);
 
       if (targetMove) {
+        // === Multiplayer handling (simplest LAN test version) ===
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          // 1. Execute locally immediately (optimistic update for the mover)
+          originalExecuteMove(fromFile, fromRank, file, rank, targetMove);
+
+          // 2. Send to server (server will relay to opponent)
+          const fromAlg = coordsToAlgebraic(fromFile, fromRank);
+          const toAlg = coordsToAlgebraic(file, rank);
+
+          ws.send(JSON.stringify({
+            type: 'move',
+            from: fromAlg,
+            to: toAlg,
+            promotion: targetMove.promotion || null
+          }));
+
+          return; // Don't fall through
+        }
+
+        // Normal single-player path
         executeMove(fromFile, fromRank, file, rank, targetMove);
       } else {
         // Clicked invalid square - deselect or select new piece if own
@@ -2269,28 +2296,25 @@
       }
 
       if (msg.type === 'gameStart') {
-        updateMultiplayerStatus('Game started! You are ' + (msg.yourColor === 'w' ? 'White' : 'Black'));
-        // In a real version we would sync full state here
+        myColor = msg.yourColor;
+        const isMyTurn = currentTurn === myColor;
+        updateMultiplayerStatus('Game started — ' + (isMyTurn ? "Your turn (White)" : "Opponent's turn"));
         return;
       }
 
       if (msg.type === 'move') {
-        // Apply move received from network
-        // For the simplest version we trust the server and just apply it
+        // Apply move received from the other player
         const from = algebraicToCoords(msg.from);
         const to = algebraicToCoords(msg.to);
 
         if (from && to) {
-          // Directly apply without full validation on client (server is authority in real version)
-          const movingPiece = getPieceAt(from.file, from.rank);
-          if (movingPiece) {
-            setPieceAt(to.file, to.rank, movingPiece);
-            setPieceAt(from.file, from.rank, null);
-            // Very rough visual update - in real version we'd do proper animation + state sync
-            // For now just force a re-render by clearing selection
-            clearSelection();
-            updateUI();
-          }
+          applyRemoteMove(from.file, from.rank, to.file, to.rank);
+        }
+
+        // Update status for the local player
+        if (myColor) {
+          const isMyTurn = currentTurn === myColor;
+          updateMultiplayerStatus(isMyTurn ? "Your turn" : "Opponent's turn");
         }
         return;
       }
@@ -2314,30 +2338,58 @@
       return String.fromCharCode(97 + file) + (rank + 1);
     }
 
-    // Override executeMove slightly for multiplayer (very hacky for first version)
-    const originalExecuteMove = executeMove;
-    window.executeMove = function(fromFile, fromRank, toFile, toRank, moveData = {}) {
-      // If we're in a multiplayer game, send the move to the server instead of executing locally
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        const from = coordsToAlgebraic(fromFile, fromRank);
-        const to = coordsToAlgebraic(toFile, toRank);
-        
-        ws.send(JSON.stringify({
-          type: 'move',
-          from,
-          to,
-          promotion: moveData.promotion || null
-        }));
-        
-        // Don't execute locally - wait for server to broadcast it back
-        // (In this super simple version we just trust it)
-        clearSelection();
-        return true;
+    // Apply a move that came from the network (opponent's move)
+    function applyRemoteMove(fromFile, fromRank, toFile, toRank) {
+      const movingPiece = getPieceAt(fromFile, fromRank);
+      if (!movingPiece) {
+        console.warn('Received move for empty square');
+        return;
       }
 
-      // Normal single-player behavior
-      return originalExecuteMove(fromFile, fromRank, toFile, toRank, moveData);
-    };
+      // Capture handling (very basic)
+      const captured = getPieceAt(toFile, toRank);
+      if (captured) {
+        if (captured.color === 'w') capturedWhite.push(captured.type);
+        else capturedBlack.push(captured.type);
+      }
+
+      // En passant capture (basic)
+      if (movingPiece.type === 'p' && fromFile !== toFile && !getPieceAt(toFile, toRank)) {
+        const epRank = movingPiece.color === 'w' ? toRank - 1 : toRank + 1;
+        const epPiece = getPieceAt(toFile, epRank);
+        if (epPiece) {
+          if (epPiece.color === 'w') capturedWhite.push(epPiece.type);
+          else capturedBlack.push(epPiece.type);
+          setPieceAt(toFile, epRank, null);
+        }
+      }
+
+      // Actually move the piece
+      setPieceAt(toFile, toRank, movingPiece);
+      setPieceAt(fromFile, fromRank, null);
+
+      // Switch turn
+      currentTurn = currentTurn === 'w' ? 'b' : 'w';
+
+      // Basic UI refresh
+      clearSelection();
+      updateUI();
+
+      // Simple animation for the remote move
+      // (We don't have the full animation system here, so we just refresh)
+      console.log('[LAN] Applied remote move');
+    }
+
+    // Multiplayer move handling (simplest LAN test version)
+    // Strategy: 
+    // - Local player: execute move normally (optimistic update) + send to server
+    // - Remote player: apply move when received from server
+
+    const originalExecuteMove = executeMove;
+
+    // We no longer globally override executeMove.
+    // Instead we intercept in tryMoveTo (see below) for cleaner control.
+
 
     console.log('%c[LAN] Multiplayer (experimental) functions loaded. Use Host/Join buttons.', 'color:#0a0');
   </script>
