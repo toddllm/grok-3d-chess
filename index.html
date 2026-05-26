@@ -1,0 +1,2157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Chess</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600&amp;display=swap');
+    
+    :root {
+      --bg: #0a0a0c;
+    }
+    
+    body {
+      font-family: 'Inter', system_ui, sans-serif;
+    }
+    
+    .font-display {
+      font-family: 'Space Grotesk', 'Inter', system_ui, sans-serif;
+      font-weight: 600;
+    }
+
+    #three-container {
+      background: #111113;
+    }
+
+    canvas {
+      display: block;
+      outline: none;
+    }
+
+    .chess-square {
+      transition: filter 0.1s ease;
+    }
+
+    .move-history {
+      font-variant-numeric: tabular-nums;
+      scrollbar-width: thin;
+    }
+
+    .piece-captured {
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+
+    .status-banner {
+      animation: slideDown 0.2s ease-out;
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .legal-move-hint {
+      pointer-events: none;
+    }
+
+    .selected-glow {
+      filter: brightness(1.3) saturate(1.1);
+    }
+
+    .three-container {
+      background: linear-gradient(145deg, #1a1a1f 0%, #111113 100%);
+    }
+  </style>
+</head>
+<body class="bg-[#0a0a0c] text-white">
+  <div class="min-h-screen flex flex-col">
+    <!-- Header -->
+    <div class="border-b border-white/10 bg-[#0a0a0c]/95 backdrop-blur-md sticky top-0 z-50">
+      <div class="max-w-[1480px] mx-auto px-8 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-x-3">
+          <div class="w-9 h-9 bg-white rounded-xl flex items-center justify-center">
+            <span class="text-[#0a0a0c] text-2xl font-bold tracking-tighter">♟</span>
+          </div>
+          <div>
+            <h1 class="font-display text-2xl tracking-tighter font-semibold">3D Chess</h1>
+            <p class="text-[10px] text-white/40 -mt-1">WEBGL • THREE.JS</p>
+          </div>
+        </div>
+        
+        <div class="flex items-center gap-x-2">
+          <button onclick="newGame()" 
+                  class="px-4 py-2 text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition flex items-center gap-x-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.058 11H1M12 3v2m0 16v2m9-9H15m-6 0a8 8 0 01-.937-1.073" />
+            </svg>
+            <span>New Game</span>
+          </button>
+          
+          <button onclick="undoMove()" 
+                  class="px-4 py-2 text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition flex items-center gap-x-2 disabled:opacity-40"
+                  id="undo-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+            </svg>
+            <span>Undo</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Full-bleed game area for maximum screen real estate -->
+    <div class="flex flex-1 min-h-0 px-4 pt-4 pb-4 gap-4">
+      
+      <!-- 3D Canvas - takes almost all available space -->
+      <div class="flex-1 flex flex-col min-w-0">
+        <div class="flex items-center justify-between mb-2 px-1">
+          <div class="flex items-center gap-x-3">
+            <!-- Turn Indicator -->
+            <div id="turn-indicator" 
+                 class="flex items-center gap-x-3 px-4 py-1.5 bg-white/5 border border-white/10 rounded-2xl">
+              <div class="flex items-center gap-x-2">
+                <div id="turn-dot" class="w-2.5 h-2.5 rounded-full bg-white"></div>
+                <div>
+                  <span id="turn-text" class="font-semibold text-base tracking-tight">White's turn</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Camera Controls -->
+            <div class="flex items-center gap-x-1.5">
+              <button onclick="setCameraView('white')" 
+                      class="px-2.5 py-1 text-[10px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition">WHITE</button>
+              <button onclick="setCameraView('black')" 
+                      class="px-2.5 py-1 text-[10px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition">BLACK</button>
+              <button onclick="resetCamera()" 
+                      class="px-2.5 py-1 text-[10px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition">RESET</button>
+            </div>
+          </div>
+
+          <div id="game-status" class="font-semibold text-sm text-emerald-400 tracking-wide pr-1"></div>
+        </div>
+
+        <!-- The actual 3D viewport - now expansive -->
+        <div id="three-container" class="three-container flex-1 w-full relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/70"
+             style="min-height: 520px;">
+          <div id="canvas-wrapper" class="w-full h-full"></div>
+          
+          <!-- Overlay labels -->
+          <div class="absolute bottom-3 left-3 px-2.5 py-0.5 rounded-full bg-black/50 text-[9px] font-mono text-white/40 pointer-events-none select-none tracking-[0.5px]">
+            DRAG TO ORBIT • SCROLL TO ZOOM
+          </div>
+        </div>
+        
+        <div class="mt-1.5 px-1 text-[10px] text-white/35">
+          Click piece to select • Click square (or green marker) to move
+        </div>
+      </div>
+
+      <!-- Thin right sidebar -->
+      <div class="w-[198px] flex flex-col gap-y-3 flex-shrink-0">
+          
+        <!-- Captured Pieces -->
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-3.5">
+          <div class="text-[10px] uppercase tracking-[0.5px] font-semibold text-white/50 mb-1.5">Captured</div>
+          <div class="space-y-3">
+            <div>
+              <div class="text-[10px] text-white/60 mb-0.5">White</div>
+              <div id="captured-white" class="min-h-6 flex flex-wrap gap-0.5 text-xl leading-none text-white/80"></div>
+            </div>
+            <div>
+              <div class="text-[10px] text-white/60 mb-0.5">Black</div>
+              <div id="captured-black" class="min-h-6 flex flex-wrap gap-0.5 text-xl leading-none text-white/80"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Move History -->
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-3.5 flex-1 flex flex-col min-h-0">
+          <div class="flex items-center justify-between mb-1.5">
+            <div class="text-[10px] uppercase tracking-[0.5px] font-semibold text-white/50">Moves</div>
+            <div id="move-count" class="text-[10px] font-mono text-white/40">0</div>
+          </div>
+          <div id="move-history" 
+               class="move-history flex-1 overflow-y-auto text-xs space-y-px pr-1 text-white/75 font-medium">
+          </div>
+        </div>
+
+        <!-- Game Info (compact) -->
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-3 text-[10px] text-white/50 leading-tight">
+          Standard rules with castling, en passant &amp; promotion.
+        </div>
+      </div>
+
+    </div>  <!-- end main flex game area -->
+  </div>    <!-- end body flex-col -->
+
+  <!-- Promotion Modal -->
+  <div id="promotion-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center">
+    <div class="bg-[#111113] border border-white/10 rounded-3xl p-8 w-full max-w-sm mx-4">
+      <div class="text-center mb-6">
+        <div class="text-xl font-semibold tracking-tight">Pawn Promotion</div>
+        <div class="text-sm text-white/50 mt-1">Choose a piece to promote to</div>
+      </div>
+      
+      <div class="grid grid-cols-4 gap-3" id="promotion-choices">
+        <!-- JS populated buttons -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Over Modal -->
+  <div id="game-over-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center">
+    <div class="bg-[#111113] border border-white/10 rounded-3xl p-8 w-full max-w-sm mx-4 text-center">
+      <div id="game-over-title" class="text-3xl font-semibold tracking-tighter mb-2"></div>
+      <div id="game-over-subtitle" class="text-lg text-white/70 mb-8"></div>
+      
+      <div class="flex gap-3">
+        <button onclick="hideGameOver(); newGame()" 
+                class="flex-1 py-3 bg-white text-black font-semibold rounded-2xl text-sm tracking-wide hover:bg-white/90 transition">
+          PLAY AGAIN
+        </button>
+        <button onclick="hideGameOver()" 
+                class="flex-1 py-3 bg-white/5 border border-white/10 hover:bg-white/10 font-semibold rounded-2xl text-sm tracking-wide transition">
+          CLOSE
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // 3D CHESS - Self-contained Three.js + Tailwind implementation
+    // ============================================================
+
+    // Tailwind script
+    function initTailwind() {
+      document.documentElement.style.setProperty('--accent', '#3b82f6');
+    }
+
+    // ============================================================
+    // THREE.JS GLOBALS
+    // ============================================================
+    let scene, camera, renderer;
+    let boardSquares = [];          // 64 square meshes
+    let boardStructure = [];        // frame, base, borders (non-square)
+    let pieceMeshes = [];           // current piece meshes on board
+    let legalMoveMarkers = [];      // current legal move hint meshes
+
+    let selectedPiece = null;       // {file, rank, mesh}
+    let isDragging = false;
+    let previousMouseX = 0;
+    let previousMouseY = 0;
+
+    // Camera spherical coordinates
+    let camRadius = 14;
+    let camTheta = Math.PI / 4;     // horizontal angle
+    let camPhi = Math.PI / 3.2;     // vertical angle (0 = top)
+
+    // ============================================================
+    // CHESS STATE
+    // ============================================================
+    let board = [];                 // 8x8 array: null or {type, color}
+    let currentTurn = 'w';
+    let moveHistory = [];
+    let capturedWhite = [];
+    let capturedBlack = [];
+    let castlingRights = { wK: true, wQ: true, bK: true, bQ: true };
+    let enPassantTarget = null;     // {file, rank} or null
+    let gameOver = false;
+    let promotionPending = null;    // {from, to, color} when promoting
+
+    const PIECE_TYPES = ['p', 'r', 'n', 'b', 'q', 'k'];
+    const PIECE_NAMES = { p: 'Pawn', r: 'Rook', n: 'Knight', b: 'Bishop', q: 'Queen', k: 'King' };
+
+    // Unicode for history + captured display
+    const UNICODE = {
+      wp: '♙', wr: '♖', wn: '♘', wb: '♗', wq: '♕', wk: '♔',
+      bp: '♟', br: '♜', bn: '♞', bb: '♝', bq: '♛', bk: '♚'
+    };
+
+    // Square colors
+    const LIGHT_SQUARE = 0xf8f0d8;   // very light warm cream — clearly visible even from straight above
+    const DARK_SQUARE  = 0x4f3628;   // deep chocolate — strong contrast with light squares + grid
+    const BOARD_BASE   = 0x2f241d;   // very dark recessed base
+    const BOARD_FRAME  = 0x221b15;   // outer border
+
+    // Board & piece height constants (kept in sync with createBoard)
+    const BOARD_Y = 0.22;
+    const SQUARE_HEIGHT = 0.28;
+    const SQUARE_TOP_Y = BOARD_Y + SQUARE_HEIGHT / 2;   // ~0.36
+    const PIECE_BASE_Y = SQUARE_TOP_Y + 0.105;          // 0.465 — bottom of piece base cylinder rests on square surface
+    const MARKER_Y = SQUARE_TOP_Y + 0.035;              // green move indicators
+
+    // Piece colors
+    const WHITE_PIECE = 0xf2e9d8;
+    const BLACK_PIECE = 0x2f2722;
+
+    // Simple Web Audio for feedback
+    let audioCtx;
+    function playSound(type = 'move') {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+
+        if (type === 'capture') {
+          osc.type = 'sawtooth';
+          osc.frequency.value = 180;
+          gain.gain.value = 0.18;
+          filter.type = 'lowpass';
+          filter.frequency.value = 800;
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+        } else if (type === 'check') {
+          osc.type = 'square';
+          osc.frequency.value = 620;
+          gain.gain.value = 0.09;
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.22);
+        } else {
+          // normal move
+          osc.type = 'sine';
+          osc.frequency.value = 520;
+          gain.gain.value = 0.12;
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+        }
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.6);
+      } catch (e) {}
+    }
+
+    // ============================================================
+    // INITIALIZE THREE.JS
+    // ============================================================
+    function initThree() {
+      const container = document.getElementById('canvas-wrapper');
+      
+      renderer = new THREE.WebGLRenderer({ 
+        antialias: true, 
+        alpha: false,
+        preserveDrawingBuffer: true 
+      });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      container.appendChild(renderer.domElement);
+
+      scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0x111113, 35, 55);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(
+        48, 
+        container.clientWidth / container.clientHeight, 
+        0.5, 
+        100
+      );
+      updateCameraPosition();
+
+      // Lights
+      const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+      scene.add(ambient);
+
+      const hemi = new THREE.HemisphereLight(0xaaaabb, 0x333322, 0.4);
+      scene.add(hemi);
+
+      const dirLight = new THREE.DirectionalLight(0xfff8e8, 0.9);
+      dirLight.position.set(6, 24, 9);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.width = 2048;
+      dirLight.shadow.mapSize.height = 2048;
+      dirLight.shadow.camera.near = 1;
+      dirLight.shadow.camera.far = 70;
+      dirLight.shadow.camera.left = -14;
+      dirLight.shadow.camera.right = 14;
+      dirLight.shadow.camera.top = 14;
+      dirLight.shadow.camera.bottom = -14;
+      dirLight.shadow.bias = -0.0004;
+      scene.add(dirLight);
+
+      // Gentle top-down fill to make board squares read clearly
+      const topFill = new THREE.DirectionalLight(0xfff5d8, 0.35);
+      topFill.position.set(0, 30, 1);
+      scene.add(topFill);
+
+      // Rim / fill light from opposite side
+      const rim = new THREE.DirectionalLight(0x8899aa, 0.32);
+      rim.position.set(-18, 10, -14);
+      scene.add(rim);
+
+      // Large flat table surface (much more open feel)
+      const table = new THREE.Mesh(
+        new THREE.CylinderGeometry(22, 22, 0.35, 72),
+        new THREE.MeshPhongMaterial({ color: 0x181512, shininess: 6 })
+      );
+      table.position.y = -0.12;
+      table.receiveShadow = true;
+      table.castShadow = true;
+      scene.add(table);
+
+      // Subtle darker ring / edge detail around the far table
+      const tableEdge = new THREE.Mesh(
+        new THREE.CylinderGeometry(21.7, 21.7, 0.08, 72),
+        new THREE.MeshPhongMaterial({ color: 0x11100e, shininess: 3 })
+      );
+      tableEdge.position.y = 0.08;
+      scene.add(tableEdge);
+
+      // Event listeners for interaction
+      const canvas = renderer.domElement;
+      canvas.addEventListener('mousedown', onMouseDown);
+      canvas.addEventListener('mousemove', onMouseMove);
+      canvas.addEventListener('mouseup', onMouseUp);
+      canvas.addEventListener('mouseleave', onMouseUp);
+      canvas.addEventListener('wheel', onMouseWheel, { passive: false });
+      canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+      // Touch support (basic)
+      canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+      canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+      canvas.addEventListener('touchend', onTouchEnd);
+
+      // Resize
+      window.addEventListener('resize', () => {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      });
+
+      // Initial render
+      renderer.setClearColor(0x111113, 1);
+    }
+
+    function updateCameraPosition() {
+      const x = camRadius * Math.sin(camPhi) * Math.sin(camTheta);
+      const z = camRadius * Math.sin(camPhi) * Math.cos(camTheta);
+      const y = camRadius * Math.cos(camPhi) + 1.5;
+
+      camera.position.set(x, y, z);
+      camera.lookAt(0, 0.8, 0);
+    }
+
+    function resetCamera() {
+      camRadius = 15.5;
+      camTheta = Math.PI / 4.2;
+      camPhi = Math.PI / 3.05;
+      updateCameraPosition();
+    }
+
+    function setCameraView(side) {
+      if (side === 'white') {
+        camTheta = Math.PI / 4.1;
+        camPhi = Math.PI / 3.0;
+        camRadius = 15;
+      } else {
+        camTheta = Math.PI / 4.1 + Math.PI;
+        camPhi = Math.PI / 3.0;
+        camRadius = 15;
+      }
+      updateCameraPosition();
+    }
+
+    // ============================================================
+    // CREATE THE 3D CHESSBOARD
+    // ============================================================
+    function createBoard() {
+      // Remove old board if exists
+      boardSquares.forEach(sq => scene.remove(sq));
+      boardSquares = [];
+      boardStructure.forEach(m => scene.remove(m));
+      boardStructure = [];
+
+      const squareSize = 1.0;           // exact 1.0 for perfect alignment with centers at *.5
+      const boardY = BOARD_Y;
+      const squareHeight = SQUARE_HEIGHT;
+
+      // Outer wooden frame / border (raised lip)
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(9.4, 0.55, 9.4),
+        new THREE.MeshPhongMaterial({ color: BOARD_FRAME, shininess: 18 })
+      );
+      frame.position.set(0, 0.02, 0);
+      frame.castShadow = true;
+      frame.receiveShadow = true;
+      scene.add(frame);
+      boardStructure.push(frame);
+
+      // Inner recessed base under the squares (dark)
+      const innerBase = new THREE.Mesh(
+        new THREE.BoxGeometry(8.3, 0.32, 8.3),
+        new THREE.MeshPhongMaterial({ color: BOARD_BASE, shininess: 14 })
+      );
+      innerBase.position.set(0, 0.08, 0);
+      innerBase.castShadow = true;
+      innerBase.receiveShadow = true;
+      scene.add(innerBase);
+      boardStructure.push(innerBase);
+
+      // The 64 visible squares — exact 1.0 size so centers at -3.5..3.5 align perfectly with grid lines at integers
+      for (let rank = 0; rank < 8; rank++) {
+        for (let file = 0; file < 8; file++) {
+          const isLight = (file + rank) % 2 === 1;
+          const color = isLight ? LIGHT_SQUARE : DARK_SQUARE;
+
+          const geometry = new THREE.BoxGeometry(squareSize, squareHeight, squareSize);
+          const material = new THREE.MeshPhongMaterial({ 
+            color, 
+            shininess: isLight ? 30 : 12,
+            specular: isLight ? 0x333333 : 0x0a0a0a
+          });
+
+          const square = new THREE.Mesh(geometry, material);
+          square.position.set(
+            file - 3.5,
+            boardY,
+            7 - rank - 3.5
+          );
+          square.castShadow = true;
+          square.receiveShadow = true;
+          square.userData = { file, rank, type: 'square' };
+
+          scene.add(square);
+          boardSquares.push(square);
+        }
+      }
+
+      // === Visible grid lines ("grout") placed exactly at integer boundaries between squares ===
+      // Square centers: -3.5, -2.5 ... 3.5   →  separators must be at -3, -2 ... 3
+      const gridMat = new THREE.MeshPhongMaterial({ color: 0x15100c, shininess: 3 });
+      const gridThickness = 0.032;
+      const gridH = SQUARE_HEIGHT + 0.05;
+
+      // Vertical separators at x = -3 to +3
+      for (let x = -3; x <= 3; x++) {
+        const line = new THREE.Mesh(
+          new THREE.BoxGeometry(gridThickness, gridH, 8.05),
+          gridMat
+        );
+        line.position.set(x, boardY + 0.01, 0);
+        line.castShadow = true;
+        line.receiveShadow = true;
+        scene.add(line);
+        boardStructure.push(line);
+      }
+      // Horizontal separators at z = -3 to +3
+      for (let z = -3; z <= 3; z++) {
+        const line = new THREE.Mesh(
+          new THREE.BoxGeometry(8.05, gridH, gridThickness),
+          gridMat
+        );
+        line.position.set(0, boardY + 0.01, z);
+        line.castShadow = true;
+        line.receiveShadow = true;
+        scene.add(line);
+        boardStructure.push(line);
+      }
+
+      // Thin decorative border on top of the frame
+      const topBorder = new THREE.Mesh(
+        new THREE.BoxGeometry(9.55, 0.07, 9.55),
+        new THREE.MeshPhongMaterial({ color: 0x15100c, shininess: 5 })
+      );
+      topBorder.position.set(0, BOARD_Y + 0.11, 0);
+      topBorder.castShadow = true;
+      topBorder.receiveShadow = true;
+      scene.add(topBorder);
+      boardStructure.push(topBorder);
+    }
+
+    // ============================================================
+    // PIECE GEOMETRY FACTORIES
+    // ============================================================
+    function createPieceMesh(type, color) {
+      const group = new THREE.Group();
+      const isWhite = color === 'w';
+      const baseColor = isWhite ? WHITE_PIECE : BLACK_PIECE;
+      const accent = isWhite ? 0xddd4c3 : 0x1f1a17;
+
+      const mat = new THREE.MeshPhongMaterial({ 
+        color: baseColor, 
+        shininess: 28,
+        specular: 0x222222,
+        flatShading: false
+      });
+      const darkMat = new THREE.MeshPhongMaterial({ 
+        color: accent, 
+        shininess: 18 
+      });
+
+      const baseHeight = 0.18;
+      const baseRadius = 0.42;
+
+      // Common base for every piece
+      const base = new THREE.Mesh(
+        new THREE.CylinderGeometry(baseRadius, baseRadius * 0.92, baseHeight, 28),
+        mat
+      );
+      base.castShadow = true;
+      base.receiveShadow = true;
+      group.add(base);
+
+      let body;
+
+      switch (type) {
+        case 'p': // Pawn
+          const bodyP = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.32, 0.36, 0.55, 24),
+            mat
+          );
+          bodyP.position.y = baseHeight / 2 + 0.27;
+          bodyP.castShadow = true;
+          bodyP.receiveShadow = true;
+          group.add(bodyP);
+
+          const head = new THREE.Mesh(
+            new THREE.SphereGeometry(0.29, 22, 22),
+            mat
+          );
+          head.position.y = baseHeight / 2 + 0.75;
+          head.castShadow = true;
+          head.receiveShadow = true;
+          group.add(head);
+
+          // Small collar
+          const collar = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.38, 0.38, 0.12, 24),
+            darkMat
+          );
+          collar.position.y = baseHeight / 2 + 0.48;
+          group.add(collar);
+          break;
+
+        case 'r': // Rook
+          const bodyR = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.34, 0.36, 0.9, 24),
+            mat
+          );
+          bodyR.position.y = baseHeight / 2 + 0.45;
+          bodyR.castShadow = true;
+          bodyR.receiveShadow = true;
+          group.add(bodyR);
+
+          // Battlements
+          const battlementY = baseHeight / 2 + 0.95;
+          for (let i = 0; i < 4; i++) {
+            const angle = (i * Math.PI / 2) + Math.PI / 4;
+            const batt = new THREE.Mesh(
+              new THREE.BoxGeometry(0.22, 0.28, 0.18),
+              darkMat
+            );
+            batt.position.set(
+              Math.cos(angle) * 0.32,
+              battlementY,
+              Math.sin(angle) * 0.32
+            );
+            batt.castShadow = true;
+            group.add(batt);
+          }
+          break;
+
+        case 'n': // Knight - stylized horse
+          const bodyN = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.32, 0.34, 0.7, 22),
+            mat
+          );
+          bodyN.position.y = baseHeight / 2 + 0.35;
+          bodyN.castShadow = true;
+          bodyN.receiveShadow = true;
+          group.add(bodyN);
+
+          // Neck / head block
+          const neck = new THREE.Mesh(
+            new THREE.BoxGeometry(0.38, 0.65, 0.48),
+            mat
+          );
+          neck.position.set(0.08, baseHeight / 2 + 0.85, 0);
+          neck.rotation.z = -0.25;
+          neck.castShadow = true;
+          neck.receiveShadow = true;
+          group.add(neck);
+
+          // Head
+          const headN = new THREE.Mesh(
+            new THREE.BoxGeometry(0.26, 0.36, 0.42),
+            mat
+          );
+          headN.position.set(0.32, baseHeight / 2 + 1.18, 0);
+          headN.rotation.z = -0.45;
+          headN.castShadow = true;
+          headN.receiveShadow = true;
+          group.add(headN);
+
+          // Ears
+          const ear1 = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 3), darkMat);
+          ear1.position.set(0.42, baseHeight / 2 + 1.38, 0.14);
+          ear1.rotation.z = -1.1;
+          group.add(ear1);
+          const ear2 = ear1.clone();
+          ear2.position.z = -0.14;
+          group.add(ear2);
+          break;
+
+        case 'b': // Bishop
+          const bodyB = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.31, 0.35, 1.05, 24),
+            mat
+          );
+          bodyB.position.y = baseHeight / 2 + 0.52;
+          bodyB.castShadow = true;
+          bodyB.receiveShadow = true;
+          group.add(bodyB);
+
+          // Mitre / pointed top
+          const mitre = new THREE.Mesh(
+            new THREE.ConeGeometry(0.32, 0.65, 24),
+            mat
+          );
+          mitre.position.y = baseHeight / 2 + 1.35;
+          mitre.castShadow = true;
+          group.add(mitre);
+
+          // Decorative band
+          const band = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.36, 0.36, 0.1, 24),
+            darkMat
+          );
+          band.position.y = baseHeight / 2 + 0.92;
+          group.add(band);
+          break;
+
+        case 'q': // Queen
+          const bodyQ = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.33, 0.37, 1.0, 24),
+            mat
+          );
+          bodyQ.position.y = baseHeight / 2 + 0.5;
+          bodyQ.castShadow = true;
+          bodyQ.receiveShadow = true;
+          group.add(bodyQ);
+
+          // Crown base
+          const crownBase = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.36, 0.36, 0.14, 24),
+            darkMat
+          );
+          crownBase.position.y = baseHeight / 2 + 1.05;
+          group.add(crownBase);
+
+          // Spikes / points of crown
+          for (let i = 0; i < 8; i++) {
+            const ang = (i * Math.PI * 2) / 8;
+            const spike = new THREE.Mesh(
+              new THREE.ConeGeometry(0.08, 0.32, 3),
+              mat
+            );
+            spike.position.set(
+              Math.cos(ang) * 0.32,
+              baseHeight / 2 + 1.35,
+              Math.sin(ang) * 0.32
+            );
+            spike.castShadow = true;
+            group.add(spike);
+          }
+
+          // Small orb on top
+          const orb = new THREE.Mesh(
+            new THREE.SphereGeometry(0.13, 18, 18),
+            darkMat
+          );
+          orb.position.y = baseHeight / 2 + 1.6;
+          orb.castShadow = true;
+          group.add(orb);
+          break;
+
+        case 'k': // King
+          const bodyK = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.34, 0.37, 1.05, 24),
+            mat
+          );
+          bodyK.position.y = baseHeight / 2 + 0.52;
+          bodyK.castShadow = true;
+          bodyK.receiveShadow = true;
+          group.add(bodyK);
+
+          // Crown ring
+          const crownRing = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.38, 0.38, 0.12, 24),
+            darkMat
+          );
+          crownRing.position.y = baseHeight / 2 + 1.08;
+          group.add(crownRing);
+
+          // Cross on top
+          const crossV = new THREE.Mesh(
+            new THREE.BoxGeometry(0.11, 0.42, 0.11),
+            darkMat
+          );
+          crossV.position.y = baseHeight / 2 + 1.42;
+          group.add(crossV);
+
+          const crossH = new THREE.Mesh(
+            new THREE.BoxGeometry(0.32, 0.1, 0.1),
+            darkMat
+          );
+          crossH.position.y = baseHeight / 2 + 1.48;
+          group.add(crossH);
+          break;
+      }
+
+      // Add subtle metal rim around base for all pieces
+      const rim = new THREE.Mesh(
+        new THREE.CylinderGeometry(baseRadius + 0.015, baseRadius * 0.93, 0.06, 28),
+        darkMat
+      );
+      rim.position.y = baseHeight * 0.5;
+      group.add(rim);
+
+      // Store metadata
+      group.userData = { type, color, originalY: group.position.y };
+
+      // Scale group slightly for better proportions
+      group.scale.set(1, 1, 1);
+
+      return group;
+    }
+
+    // ============================================================
+    // PLACE PIECES ON BOARD
+    // ============================================================
+    function setupInitialPosition() {
+      // Clear existing pieces
+      pieceMeshes.forEach(m => scene.remove(m));
+      pieceMeshes = [];
+
+      board = Array.from({ length: 8 }, () => Array(8).fill(null));
+
+      // White pieces (rank 0 = rank 1)
+      const backRank = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
+      
+      for (let f = 0; f < 8; f++) {
+        // White pawns
+        board[f][1] = { type: 'p', color: 'w' };
+        // White back rank
+        board[f][0] = { type: backRank[f], color: 'w' };
+
+        // Black pawns
+        board[f][6] = { type: 'p', color: 'b' };
+        // Black back rank
+        board[f][7] = { type: backRank[f], color: 'b' };
+      }
+
+      // Create meshes
+      for (let file = 0; file < 8; file++) {
+        for (let rank = 0; rank < 8; rank++) {
+          const piece = board[file][rank];
+          if (piece) {
+            const mesh = createPieceMesh(piece.type, piece.color);
+            mesh.position.set(file - 3.5, PIECE_BASE_Y, 7 - rank - 3.5);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            pieceMeshes.push(mesh);
+            piece.mesh = mesh; // link
+          }
+        }
+      }
+    }
+
+    function getPieceAt(file, rank) {
+      if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+      return board[file][rank];
+    }
+
+    function setPieceAt(file, rank, piece) {
+      board[file][rank] = piece;
+    }
+
+    // ============================================================
+    // CHESS RULES ENGINE
+    // ============================================================
+    function isInBounds(f, r) {
+      return f >= 0 && f <= 7 && r >= 0 && r <= 7;
+    }
+
+    function cloneBoard(b) {
+      return b.map(col => col.map(p => p ? {...p} : null));
+    }
+
+    function findKing(color) {
+      for (let f = 0; f < 8; f++) {
+        for (let r = 0; r < 8; r++) {
+          const p = board[f][r];
+          if (p && p.type === 'k' && p.color === color) {
+            return { file: f, rank: r };
+          }
+        }
+      }
+      return null;
+    }
+
+    function isSquareAttacked(file, rank, attackerColor) {
+      // Check all opponent pieces for attacks on (file, rank)
+      for (let f = 0; f < 8; f++) {
+        for (let r = 0; r < 8; r++) {
+          const p = board[f][r];
+          if (!p || p.color !== attackerColor) continue;
+
+          const deltas = getAttackDeltas(p.type, p.color);
+          
+          if (p.type === 'p') {
+            // Pawn attacks diagonally
+            const dir = p.color === 'w' ? 1 : -1;
+            if ((f + 1 === file && r + dir === rank) || (f - 1 === file && r + dir === rank)) {
+              return true;
+            }
+          } 
+          else if (p.type === 'n') {
+            for (const [df, dr] of deltas) {
+              if (f + df === file && r + dr === rank) return true;
+            }
+          } 
+          else {
+            // Sliding or king
+            for (const [df, dr] of deltas) {
+              let cf = f + df;
+              let cr = r + dr;
+              while (isInBounds(cf, cr)) {
+                if (cf === file && cr === rank) return true;
+                if (getPieceAt(cf, cr)) break; // blocked
+                if (p.type === 'k') break; // king only one step
+                cf += df;
+                cr += dr;
+              }
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function getAttackDeltas(type, color) {
+      if (type === 'p') {
+        return []; // handled specially
+      }
+      if (type === 'n') {
+        return [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]];
+      }
+      if (type === 'k') {
+        return [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+      }
+      if (type === 'r' || type === 'q') {
+        return [[-1,0],[1,0],[0,-1],[0,1]];
+      }
+      if (type === 'b' || type === 'q') {
+        return [[-1,-1],[-1,1],[1,-1],[1,1]];
+      }
+      return [];
+    }
+
+    // Explicit, easy-to-audit "does this piece attack this square?" 
+    // Used as a second opinion for king safety to catch remaining edge cases.
+    function doesPieceAttackSquare(p, pFile, pRank, tFile, tRank) {
+      if (!p) return false;
+      const dx = tFile - pFile;
+      const dy = tRank - pRank;
+      const adx = Math.abs(dx);
+      const ady = Math.abs(dy);
+
+      if (p.type === 'p') {
+        const dir = p.color === 'w' ? 1 : -1;
+        return adx === 1 && dy === dir;
+      }
+      if (p.type === 'n') {
+        return (adx === 1 && ady === 2) || (adx === 2 && ady === 1);
+      }
+      if (p.type === 'k') {
+        return Math.max(adx, ady) === 1;
+      }
+
+      // Sliding pieces
+      let onLine = false;
+      let stepX = 0, stepY = 0;
+
+      if (p.type === 'r' || p.type === 'q') {
+        if (dx === 0 || dy === 0) {
+          onLine = true;
+          stepX = dx === 0 ? 0 : (dx > 0 ? 1 : -1);
+          stepY = dy === 0 ? 0 : (dy > 0 ? 1 : -1);
+        }
+      }
+      if (p.type === 'b' || p.type === 'q') {
+        if (adx === ady && adx > 0) {
+          onLine = true;
+          stepX = dx > 0 ? 1 : -1;
+          stepY = dy > 0 ? 1 : -1;
+        }
+      }
+      if (!onLine) return false;
+
+      // Walk from attacker toward target
+      let cx = pFile + stepX;
+      let cy = pRank + stepY;
+      while (isInBounds(cx, cy)) {
+        if (cx === tFile && cy === tRank) return true;
+        if (getPieceAt(cx, cy)) return false; // blocked before reaching target
+        cx += stepX;
+        cy += stepY;
+      }
+      return false;
+    }
+
+    function getLegalMoves(file, rank) {
+      const piece = getPieceAt(file, rank);
+      if (!piece) return [];
+
+      const moves = [];
+      const isWhite = piece.color === 'w';
+
+      if (piece.type === 'p') {
+        const dir = isWhite ? 1 : -1;
+        const startRank = isWhite ? 1 : 6;
+
+        // Forward 1
+        if (isInBounds(file, rank + dir) && !getPieceAt(file, rank + dir)) {
+          moves.push({ file, rank: rank + dir });
+          // Double forward from start
+          if (rank === startRank && !getPieceAt(file, rank + dir * 2)) {
+            moves.push({ file, rank: rank + dir * 2 });
+          }
+        }
+        // Captures
+        for (const df of [-1, 1]) {
+          const tf = file + df;
+          const tr = rank + dir;
+          if (isInBounds(tf, tr)) {
+            const target = getPieceAt(tf, tr);
+            if (target && target.color !== piece.color) {
+              moves.push({ file: tf, rank: tr });
+            }
+            // En passant
+            if (enPassantTarget && enPassantTarget.file === tf && enPassantTarget.rank === tr) {
+              moves.push({ file: tf, rank: tr, enPassant: true });
+            }
+          }
+        }
+      } 
+      else if (piece.type === 'n') {
+        const deltas = [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]];
+        for (const [df, dr] of deltas) {
+          const tf = file + df, tr = rank + dr;
+          if (isInBounds(tf, tr)) {
+            const t = getPieceAt(tf, tr);
+            if (!t || t.color !== piece.color) moves.push({ file: tf, rank: tr });
+          }
+        }
+      } 
+      else if (piece.type === 'k') {
+        const deltas = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+
+        for (const [df, dr] of deltas) {
+          const tf = file + df, tr = rank + dr;
+          if (isInBounds(tf, tr)) {
+            const t = getPieceAt(tf, tr);
+            if (!t || t.color !== piece.color) {
+              // Primary: isolated simulation
+              const primarySafe = !wouldLeaveKingInCheck(file, rank, tf, tr, {});
+
+              // Secondary: explicit, easy-to-reason "does any opponent piece attack this square?"
+              // This is deliberately written in a very direct style to catch any remaining
+              // edge cases in the main isSquareAttacked logic.
+              let explicitSafe = true;
+              const opponent = isWhite ? 'b' : 'w';
+              for (let af = 0; af < 8 && explicitSafe; af++) {
+                for (let ar = 0; ar < 8 && explicitSafe; ar++) {
+                  const attacker = board[af][ar];
+                  if (attacker && attacker.color === opponent) {
+                    if (doesPieceAttackSquare(attacker, af, ar, tf, tr)) {
+                      explicitSafe = false;
+                    }
+                  }
+                }
+              }
+
+              if (primarySafe && explicitSafe) {
+                moves.push({ file: tf, rank: tr });
+              }
+            }
+          }
+        }
+        // Castling
+        if (!isInCheck(piece.color)) {
+          const homeRank = isWhite ? 0 : 7;
+          if (rank === homeRank && file === 4) {
+            // Kingside
+            if (castlingRights[isWhite ? 'wK' : 'bK'] &&
+                !getPieceAt(5, rank) && !getPieceAt(6, rank) &&
+                !isSquareAttacked(5, rank, isWhite ? 'b' : 'w') &&
+                !isSquareAttacked(6, rank, isWhite ? 'b' : 'w')) {
+              moves.push({ file: 6, rank, castling: 'kingside' });
+            }
+            // Queenside
+            if (castlingRights[isWhite ? 'wQ' : 'bQ'] &&
+                !getPieceAt(3, rank) && !getPieceAt(2, rank) && !getPieceAt(1, rank) &&
+                !isSquareAttacked(3, rank, isWhite ? 'b' : 'w') &&
+                !isSquareAttacked(2, rank, isWhite ? 'b' : 'w')) {
+              moves.push({ file: 2, rank, castling: 'queenside' });
+            }
+          }
+        }
+      } 
+      else {
+        // Sliding pieces: rook, bishop, queen
+        let deltas = [];
+        if (piece.type === 'r') deltas = [[-1,0],[1,0],[0,-1],[0,1]];
+        if (piece.type === 'b') deltas = [[-1,-1],[-1,1],[1,-1],[1,1]];
+        if (piece.type === 'q') deltas = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+
+        for (const [df, dr] of deltas) {
+          let tf = file + df, tr = rank + dr;
+          while (isInBounds(tf, tr)) {
+            const t = getPieceAt(tf, tr);
+            if (!t) {
+              moves.push({ file: tf, rank: tr });
+            } else {
+              if (t.color !== piece.color) moves.push({ file: tf, rank: tr });
+              break;
+            }
+            tf += df;
+            tr += dr;
+          }
+        }
+      }
+
+      // Primary filter
+      let legal = moves.filter(move => !wouldLeaveKingInCheck(file, rank, move.file, move.rank, move));
+
+      // Strong final verification for *all* moves: simulate on an isolated clone and keep only those
+      // where after the move the king is not in check (using isInCheck). This is the ultimate
+      // arbiter and should catch any subtle leaks from the primary simulation or attack detection.
+      const ourColor = piece.color;
+      legal = legal.filter(move => {
+        const savedBoard = cloneBoard(board);
+        const savedEp = enPassantTarget;
+
+        const realBoard = board;
+        board = savedBoard;
+
+        board[move.file][move.rank] = piece;
+        board[file][rank] = null;
+
+        if (move.enPassant) {
+          const epRank = ourColor === 'w' ? move.rank - 1 : move.rank + 1;
+          board[move.file][epRank] = null;
+        }
+        // Note: we intentionally do not simulate castling rook move here for the check test,
+        // as the primary wouldLeave already handles king safety, and this is a double-check.
+
+        const kingSafeAfter = !isInCheck(ourColor);
+
+        board = realBoard;
+        enPassantTarget = savedEp;
+
+        return kingSafeAfter;
+      });
+
+      return legal;
+    }
+
+    function wouldLeaveKingInCheck(fromFile, fromRank, toFile, toRank, moveData = {}) {
+      const piece = getPieceAt(fromFile, fromRank);
+      if (!piece) return true;
+
+      const savedEnPassant = enPassantTarget;
+
+      // Work on a completely isolated clone so the real board is never mutated during the legality test.
+      // This is the most robust way to simulate "would this move leave the king in check?"
+      const testBoard = cloneBoard(board);
+
+      // Swap in the test board for the duration of the check
+      const realBoard = board;
+      board = testBoard;
+
+      // Perform the move on the test board
+      board[toFile][toRank] = piece;
+      board[fromFile][fromRank] = null;
+
+      if (moveData.enPassant) {
+        const epRank = piece.color === 'w' ? toRank - 1 : toRank + 1;
+        board[toFile][epRank] = null;
+      }
+
+      const kingPos = piece.type === 'k' 
+        ? { file: toFile, rank: toRank } 
+        : findKing(piece.color);
+
+      const opponent = piece.color === 'w' ? 'b' : 'w';
+      const leavesInCheck = kingPos 
+        ? isSquareAttacked(kingPos.file, kingPos.rank, opponent) 
+        : true;
+
+      // Restore the real board and state
+      board = realBoard;
+      enPassantTarget = savedEnPassant;
+
+      return leavesInCheck;
+    }
+
+    function isInCheck(color) {
+      const king = findKing(color);
+      if (!king) return false;
+      return isSquareAttacked(king.file, king.rank, color === 'w' ? 'b' : 'w');
+    }
+
+    function hasLegalMoves(color) {
+      for (let f = 0; f < 8; f++) {
+        for (let r = 0; r < 8; r++) {
+          const p = board[f][r];
+          if (p && p.color === color) {
+            if (getLegalMoves(f, r).length > 0) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function updateCastlingRights(piece, fromFile, fromRank, toFile, toRank, capturedPiece) {
+      if (piece.type === 'k') {
+        if (piece.color === 'w') { castlingRights.wK = false; castlingRights.wQ = false; }
+        else { castlingRights.bK = false; castlingRights.bQ = false; }
+      }
+      if (piece.type === 'r') {
+        if (piece.color === 'w') {
+          if (fromFile === 0) castlingRights.wQ = false;
+          if (fromFile === 7) castlingRights.wK = false;
+        } else {
+          if (fromFile === 0) castlingRights.bQ = false;
+          if (fromFile === 7) castlingRights.bK = false;
+        }
+      }
+      // If a rook was captured on its original corner, disable castling for its owner
+      if (capturedPiece && capturedPiece.type === 'r') {
+        const capColor = capturedPiece.color;
+        const homeRank = capColor === 'w' ? 0 : 7;
+        if (toFile === 0 && toRank === homeRank) {
+          if (capColor === 'w') castlingRights.wQ = false;
+          else castlingRights.bQ = false;
+        }
+        if (toFile === 7 && toRank === homeRank) {
+          if (capColor === 'w') castlingRights.wK = false;
+          else castlingRights.bK = false;
+        }
+      }
+    }
+
+    // ============================================================
+    // EXECUTE MOVE
+    // ============================================================
+    function executeMove(fromFile, fromRank, toFile, toRank, moveData = {}) {
+      if (gameOver) return false;
+
+      const piece = getPieceAt(fromFile, fromRank);
+      if (!piece || piece.color !== currentTurn) return false;
+
+      const legal = getLegalMoves(fromFile, fromRank);
+      const isLegal = legal.some(m => m.file === toFile && m.rank === toRank);
+      if (!isLegal) return false;
+
+      // Ultimate safety net at execution time (before any mutation):
+      // Use the clean isolated simulation to refuse any move that would leave our king in check.
+      // This guarantees no illegal state can ever be reached, even if getLegalMoves ever leaks a bad move.
+      if (wouldLeaveKingInCheck(fromFile, fromRank, toFile, toRank, moveData)) {
+        console.error("Refusing to execute move that would leave the king in check.");
+        return false;
+      }
+
+      const captured = getPieceAt(toFile, toRank);
+      let capturedPieceData = null;
+      let isEnPassantCapture = false;
+      let rookCastlingMove = null;
+
+      // Handle capture
+      if (captured) {
+        capturedPieceData = { ...captured };
+        removePieceMesh(toFile, toRank);
+        if (captured.color === 'w') capturedWhite.push(captured.type);
+        else capturedBlack.push(captured.type);
+      }
+
+      // En passant
+      if (moveData.enPassant) {
+        const epRank = piece.color === 'w' ? toRank - 1 : toRank + 1;
+        const epPiece = getPieceAt(toFile, epRank);
+        if (epPiece) {
+          capturedPieceData = { ...epPiece };
+          removePieceMesh(toFile, epRank);
+          if (epPiece.color === 'w') capturedWhite.push(epPiece.type);
+          else capturedBlack.push(epPiece.type);
+        }
+        setPieceAt(toFile, epRank, null);
+        isEnPassantCapture = true;
+      }
+
+      // Move piece in state
+      setPieceAt(toFile, toRank, piece);
+      setPieceAt(fromFile, fromRank, null);
+
+      // Castling
+      if (moveData.castling) {
+        const homeRank = piece.color === 'w' ? 0 : 7;
+        if (moveData.castling === 'kingside') {
+          // Move rook h -> f
+          const rook = getPieceAt(7, homeRank);
+          setPieceAt(6, homeRank, rook);
+          setPieceAt(7, homeRank, null);
+          rookCastlingMove = { from: {f:7,r:homeRank}, to: {f:6,r:homeRank} };
+          updatePieceMeshPosition(7, homeRank, 6, homeRank);
+        } else {
+          // Queenside
+          const rook = getPieceAt(0, homeRank);
+          setPieceAt(3, homeRank, rook);
+          setPieceAt(0, homeRank, null);
+          rookCastlingMove = { from: {f:0,r:homeRank}, to: {f:3,r:homeRank} };
+          updatePieceMeshPosition(0, homeRank, 3, homeRank);
+        }
+        if (piece.color === 'w') { castlingRights.wK = false; castlingRights.wQ = false; }
+        else { castlingRights.bK = false; castlingRights.bQ = false; }
+      }
+
+      updateCastlingRights(piece, fromFile, fromRank, toFile, toRank, captured);
+
+      // Update en passant target
+      enPassantTarget = null;
+      if (piece.type === 'p' && Math.abs(toRank - fromRank) === 2) {
+        enPassantTarget = { file: fromFile, rank: Math.floor((fromRank + toRank) / 2) };
+      }
+
+      // Move the visual piece
+      updatePieceMeshPosition(fromFile, fromRank, toFile, toRank);
+
+      // Sound
+      playSound(capturedPieceData ? 'capture' : 'move');
+
+      // This should almost never be reached now thanks to the early refusal + strict getLegalMoves.
+      if (isInCheck(piece.color)) {
+        console.error("CRITICAL: Reached post-mutation state with king in check. This indicates a leak in legal move filtering.");
+        return false;
+      }
+
+      // Record move
+      const moveRecord = {
+        from: { file: fromFile, rank: fromRank },
+        to: { file: toFile, rank: toRank },
+        piece: { ...piece },
+        captured: capturedPieceData,
+        enPassant: isEnPassantCapture,
+        castling: moveData.castling || null,
+        check: false
+      };
+
+      // Promotion check
+      if (piece.type === 'p' && (toRank === 7 || toRank === 0)) {
+        promotionPending = { from: {file:fromFile, rank:fromRank}, to: {file:toFile, rank:toRank}, color: piece.color };
+        // Do not switch turn yet
+        moveHistory.push(moveRecord);
+        updateUI();
+        showPromotionDialog();
+        return true;
+      }
+
+      // Switch turn
+      currentTurn = currentTurn === 'w' ? 'b' : 'w';
+
+      // Check / checkmate
+      const opponentInCheck = isInCheck(currentTurn);
+      moveRecord.check = opponentInCheck;
+      if (opponentInCheck) playSound('check');
+      moveHistory.push(moveRecord);
+
+      if (opponentInCheck && !hasLegalMoves(currentTurn)) {
+        gameOver = true;
+        showGameOver(currentTurn === 'w' ? 'Black' : 'White', 'checkmate');
+      } else if (!opponentInCheck && !hasLegalMoves(currentTurn)) {
+        gameOver = true;
+        showGameOver(null, 'stalemate');
+      } else if (moveHistory.length > 100) {
+        // Soft limit to prevent infinite games in practice
+      }
+
+      updateUI();
+      clearSelection();
+      return true;
+    }
+
+    function removePieceMesh(file, rank) {
+      const idx = pieceMeshes.findIndex(m => {
+        const px = Math.round(m.position.x + 3.5);
+        const pz = Math.round(7 - (m.position.z + 3.5));
+        return px === file && pz === rank;
+      });
+      if (idx !== -1) {
+        const mesh = pieceMeshes[idx];
+        scene.remove(mesh);
+        pieceMeshes.splice(idx, 1);
+      }
+    }
+
+    function updatePieceMeshPosition(fromFile, fromRank, toFile, toRank) {
+      const mesh = pieceMeshes.find(m => {
+        const px = Math.round(m.position.x + 3.5);
+        const pz = Math.round(7 - (m.position.z + 3.5));
+        return px === fromFile && pz === fromRank;
+      });
+      if (!mesh) return;
+
+      const targetX = toFile - 3.5;
+      const targetZ = 7 - toRank - 3.5;
+
+      // Simple animation via requestAnimationFrame
+      const startX = mesh.position.x;
+      const startZ = mesh.position.z;
+      const startY = mesh.position.y;
+      const duration = 280;
+      const startTime = Date.now();
+
+      function animateMove() {
+        const t = Math.min(1, (Date.now() - startTime) / duration);
+        const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // easeInOutQuad
+
+        mesh.position.x = startX + (targetX - startX) * ease;
+        mesh.position.z = startZ + (targetZ - startZ) * ease;
+
+        // Gentle lift
+        mesh.position.y = startY + Math.sin(ease * Math.PI) * 0.9;
+
+        if (t < 1) {
+          requestAnimationFrame(animateMove);
+        } else {
+          mesh.position.set(targetX, PIECE_BASE_Y, targetZ);
+          // If this mesh is a king or rook after castling, it's already handled
+        }
+      }
+      animateMove();
+    }
+
+    // ============================================================
+    // PROMOTION
+    // ============================================================
+    function showPromotionDialog() {
+      const modal = document.getElementById('promotion-modal');
+      const container = document.getElementById('promotion-choices');
+      container.innerHTML = '';
+
+      const choices = [
+        { type: 'q', label: 'Queen' },
+        { type: 'r', label: 'Rook' },
+        { type: 'b', label: 'Bishop' },
+        { type: 'n', label: 'Knight' }
+      ];
+
+      choices.forEach(choice => {
+        const btn = document.createElement('button');
+        btn.className = `group flex flex-col items-center justify-center py-3 px-2 bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/10 rounded-2xl transition`;
+        
+        const pieceEl = document.createElement('div');
+        pieceEl.className = `text-5xl mb-1 transition group-active:scale-95 ${promotionPending.color === 'w' ? 'text-[#f2e9d8]' : 'text-[#2f2722]'}`;
+        pieceEl.textContent = UNICODE[promotionPending.color + choice.type];
+
+        const label = document.createElement('div');
+        label.className = 'text-[10px] font-medium tracking-widest text-white/50';
+        label.textContent = choice.label.toUpperCase();
+
+        btn.appendChild(pieceEl);
+        btn.appendChild(label);
+
+        btn.onclick = () => {
+          completePromotion(choice.type);
+          modal.classList.add('hidden');
+        };
+        container.appendChild(btn);
+      });
+
+      modal.classList.remove('hidden');
+    }
+
+    function completePromotion(newType) {
+      if (!promotionPending) return;
+
+      const { from, to, color } = promotionPending;
+      const piece = getPieceAt(to.file, to.rank); // already moved
+      if (piece) piece.type = newType;
+
+      // Update the visual mesh
+      const mesh = pieceMeshes.find(m => {
+        const px = Math.round(m.position.x + 3.5);
+        const pz = Math.round(7 - (m.position.z + 3.5));
+        return px === to.file && pz === to.rank;
+      });
+      if (mesh) {
+        scene.remove(mesh);
+        const idx = pieceMeshes.indexOf(mesh);
+        if (idx > -1) pieceMeshes.splice(idx, 1);
+
+        const newMesh = createPieceMesh(newType, color);
+        newMesh.position.set(to.file - 3.5, PIECE_BASE_Y, 7 - to.rank - 3.5);
+        newMesh.castShadow = true;
+        newMesh.receiveShadow = true;
+        scene.add(newMesh);
+        pieceMeshes.push(newMesh);
+      }
+
+      // Finish turn
+      currentTurn = color === 'w' ? 'b' : 'w';
+      playSound('move');
+      const wasCheck = isInCheck(currentTurn);
+      if (wasCheck) playSound('check');
+
+      if (wasCheck && !hasLegalMoves(currentTurn)) {
+        gameOver = true;
+        showGameOver(currentTurn === 'w' ? 'Black' : 'White', 'checkmate');
+      } else if (!wasCheck && !hasLegalMoves(currentTurn)) {
+        gameOver = true;
+        showGameOver(null, 'stalemate');
+      }
+
+      promotionPending = null;
+      updateUI();
+      clearSelection();
+    }
+
+    // ============================================================
+    // VISUAL SELECTION & HIGHLIGHTS
+    // ============================================================
+    function highlightSquare(file, rank, color = 0x4ade80, intensity = 0.38) {
+      const square = boardSquares.find(s => 
+        s.userData.file === file && s.userData.rank === rank
+      );
+      if (!square) return;
+      square.material.emissive = new THREE.Color(color);
+      square.material.emissiveIntensity = intensity;
+    }
+
+    function clearHighlights() {
+      boardSquares.forEach(sq => {
+        sq.material.emissive = new THREE.Color(0x000000);
+        sq.material.emissiveIntensity = 0;
+      });
+      // Remove markers
+      legalMoveMarkers.forEach(m => scene.remove(m));
+      legalMoveMarkers = [];
+    }
+
+    function showLegalMoveMarkers(moves) {
+      legalMoveMarkers.forEach(m => scene.remove(m));
+      legalMoveMarkers = [];
+
+      moves.forEach(move => {
+        // Only show green movement dots on *empty* squares.
+        // Captures are indicated by lighting up the target square (see selectPiece).
+        if (getPieceAt(move.file, move.rank)) return;
+
+        // Larger, easier-to-hit green disks (still tasteful)
+        const marker = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.32, 0.32, 0.045, 24),
+          new THREE.MeshPhongMaterial({ 
+            color: 0x22c55e, 
+            transparent: true, 
+            opacity: 0.55,
+            shininess: 8
+          })
+        );
+        marker.position.set(
+          move.file - 3.5,
+          MARKER_Y,
+          7 - move.rank - 3.5
+        );
+        marker.userData = { type: 'legal', file: move.file, rank: move.rank };
+        scene.add(marker);
+        legalMoveMarkers.push(marker);
+      });
+    }
+
+    function selectPiece(file, rank) {
+      clearSelection();
+
+      const piece = getPieceAt(file, rank);
+      if (!piece || piece.color !== currentTurn) return;
+
+      const mesh = pieceMeshes.find(m => {
+        const px = Math.round(m.position.x + 3.5);
+        const pz = Math.round(7 - (m.position.z + 3.5));
+        return px === file && pz === rank;
+      });
+      if (!mesh) return;
+
+      selectedPiece = { file, rank, mesh };
+
+      // Visual feedback
+      mesh.scale.set(1.08, 1.08, 1.08);
+      mesh.position.y = PIECE_BASE_Y + 0.85; // lift when selected (from above this looks planted)
+
+      const legal = getLegalMoves(file, rank);
+      showLegalMoveMarkers(legal);
+
+      // Light up capture squares (with enemy pieces on them).
+      // We both tint the square (subtle) AND place a visible red capture marker
+      // so it's obvious even from straight above when a piece is sitting on the square.
+      legal.forEach(m => {
+        const target = getPieceAt(m.file, m.rank);
+        if (target && target.color !== currentTurn) {
+          // Subtle red glow on the tile itself (backup)
+          highlightSquare(m.file, m.rank, 0xf87171, 0.35);
+
+          // Find the enemy piece mesh so we can place a ring at its actual height
+          const enemyMesh = pieceMeshes.find(mm => {
+            const px = Math.round(mm.position.x + 3.5);
+            const pz = Math.round(7 - (mm.position.z + 3.5));
+            return px === m.file && pz === m.rank;
+          });
+
+          // Raised red ring that encircles the enemy piece — clearly visible from normal overhead angles
+          const ringRadius = 0.56;
+          const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(ringRadius, 0.045, 10, 26),
+            new THREE.MeshPhongMaterial({
+              color: 0xff2d2d,
+              emissive: 0x771111,
+              transparent: true,
+              opacity: 0.92,
+              shininess: 6
+            })
+          );
+          ring.rotation.x = Math.PI / 2; // lay the ring flat on the board plane
+
+          const ringY = enemyMesh
+            ? enemyMesh.position.y + 0.22   // sits around the lower body / first tier of the piece
+            : PIECE_BASE_Y + 0.28;
+
+          ring.position.set(
+            m.file - 3.5,
+            ringY,
+            7 - m.rank - 3.5
+          );
+          ring.userData = { type: 'legal', file: m.file, rank: m.rank };
+          scene.add(ring);
+          legalMoveMarkers.push(ring);
+        }
+      });
+
+      // Tint the square under the selected piece (amber/gold)
+      highlightSquare(file, rank, 0xfbbf24, 0.42);
+
+    }
+
+    function clearSelection() {
+      if (selectedPiece && selectedPiece.mesh) {
+        selectedPiece.mesh.scale.set(1, 1, 1);
+        selectedPiece.mesh.position.y = PIECE_BASE_Y;
+      }
+      selectedPiece = null;
+      clearHighlights();
+    }
+
+    function tryMoveTo(file, rank) {
+      if (!selectedPiece) return;
+
+      const fromFile = selectedPiece.file;
+      const fromRank = selectedPiece.rank;
+
+      const piece = getPieceAt(fromFile, fromRank);
+      if (!piece) {
+        clearSelection();
+        return;
+      }
+
+      const legalMoves = getLegalMoves(fromFile, fromRank);
+      const targetMove = legalMoves.find(m => m.file === file && m.rank === rank);
+
+      if (targetMove) {
+        executeMove(fromFile, fromRank, file, rank, targetMove);
+      } else {
+        // Clicked invalid square - deselect or select new piece if own
+        const clickedPiece = getPieceAt(file, rank);
+        if (clickedPiece && clickedPiece.color === currentTurn) {
+          selectPiece(file, rank);
+        } else {
+          clearSelection();
+        }
+      }
+    }
+
+    // ============================================================
+    // MOUSE / RAYCASTING INTERACTION
+    // ============================================================
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    function getIntersects(clientX, clientY) {
+      const canvas = renderer.domElement;
+      const rect = canvas.getBoundingClientRect();
+
+      mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      return raycaster.intersectObjects([...boardSquares, ...pieceMeshes, ...legalMoveMarkers], true);
+    }
+
+    function onMouseDown(e) {
+      if (e.button === 2) return; // right click ignored
+
+      const canvas = renderer.domElement;
+      const rect = canvas.getBoundingClientRect();
+      previousMouseX = e.clientX;
+      previousMouseY = e.clientY;
+
+      const intersects = getIntersects(e.clientX, e.clientY);
+
+      // Collect what we actually hit (walk parents)
+      let hitPieceMesh = null;
+      let hitSquare = null;
+      let hitLegalMarker = null;
+
+      for (const hit of intersects) {
+        let current = hit.object;
+        while (current) {
+          const ud = current.userData || {};
+          if (ud.type === 'legal' && ud.file != null) {
+            hitLegalMarker = ud;
+          }
+          if (ud.type === 'square') {
+            hitSquare = ud;
+          }
+          if (ud.type && ud.color && ud.type !== 'square' && ud.type !== 'legal') {
+            hitPieceMesh = current;
+          }
+          current = current.parent;
+        }
+        // We continue to collect best candidates; order is roughly front-to-back
+      }
+
+      // === When we already have a piece selected, strongly prefer moving to a square ===
+      if (selectedPiece) {
+        // 1. Direct hit on a green legal marker → move there (very reliable)
+        if (hitLegalMarker) {
+          tryMoveTo(hitLegalMarker.file, hitLegalMarker.rank);
+          return;
+        }
+        // 2. Hit on any board square → try to move there (the big reliable target)
+        if (hitSquare) {
+          tryMoveTo(hitSquare.file, hitSquare.rank);
+          return;
+        }
+        // 3. Clicked on a different own piece → switch selection
+        if (hitPieceMesh) {
+          const pos = hitPieceMesh.position;
+          const file = Math.round(pos.x + 3.5);
+          const rank = Math.round(7 - (pos.z + 3.5));
+          const p = getPieceAt(file, rank);
+          if (p && p.color === currentTurn) {
+            selectPiece(file, rank);
+            return;
+          }
+        }
+        // 4. Clicked empty space or invalid → clear selection
+        clearSelection();
+        return;
+      }
+
+      // === No piece currently selected ===
+      if (hitPieceMesh) {
+        const pos = hitPieceMesh.position;
+        const file = Math.round(pos.x + 3.5);
+        const rank = Math.round(7 - (pos.z + 3.5));
+        const p = getPieceAt(file, rank);
+        if (p && p.color === currentTurn) {
+          selectPiece(file, rank);
+          return;
+        }
+      }
+
+      // Clicked a square that has one of our pieces on it (rare fallback)
+      if (hitSquare) {
+        const p = getPieceAt(hitSquare.file, hitSquare.rank);
+        if (p && p.color === currentTurn) {
+          selectPiece(hitSquare.file, hitSquare.rank);
+          return;
+        }
+      }
+
+      // Otherwise start orbiting
+      isDragging = true;
+    }
+
+    function onMouseMove(e) {
+      if (isDragging) {
+        const deltaX = e.clientX - previousMouseX;
+        const deltaY = e.clientY - previousMouseY;
+
+        camTheta -= deltaX * 0.0045;
+        camPhi -= deltaY * 0.004;
+
+        // Clamp vertical angle
+        camPhi = Math.max(0.25, Math.min(Math.PI / 2.05, camPhi));
+
+        updateCameraPosition();
+
+        previousMouseX = e.clientX;
+        previousMouseY = e.clientY;
+      }
+    }
+
+    function onMouseUp() {
+      isDragging = false;
+    }
+
+    function onMouseWheel(e) {
+      e.preventDefault();
+      camRadius += e.deltaY * 0.018;
+      camRadius = Math.max(7.5, Math.min(26, camRadius));
+      updateCameraPosition();
+    }
+
+    // Touch handlers (simplified)
+    let touchStartX = 0, touchStartY = 0;
+    let lastTouchDist = 0;
+
+    function onTouchStart(e) {
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+
+        // Try selection immediately on touch
+        const intersects = getIntersects(t.clientX, t.clientY);
+        let hitPiece = null;
+        for (const hit of intersects) {
+          let cur = hit.object;
+          while (cur) {
+            if (cur.userData?.type && cur.userData?.color) { hitPiece = cur; break; }
+            cur = cur.parent;
+          }
+          if (hitPiece) break;
+        }
+        if (hitPiece) {
+          const pos = hitPiece.position;
+          const file = Math.round(pos.x + 3.5);
+          const rank = Math.round(7 - (pos.z + 3.5));
+          if (selectedPiece && selectedPiece.file === file && selectedPiece.rank === rank) {
+            clearSelection();
+          } else {
+            selectPiece(file, rank);
+          }
+          e.preventDefault();
+        } else {
+          isDragging = true;
+        }
+      } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastTouchDist = Math.hypot(dx, dy);
+      }
+    }
+
+    function onTouchMove(e) {
+      if (e.touches.length === 1 && isDragging) {
+        const t = e.touches[0];
+        const dx = t.clientX - touchStartX;
+        const dy = t.clientY - touchStartY;
+
+        camTheta -= dx * 0.005;
+        camPhi -= dy * 0.0045;
+        camPhi = Math.max(0.25, Math.min(Math.PI / 2.05, camPhi));
+        updateCameraPosition();
+
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+        e.preventDefault();
+      } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+
+        if (lastTouchDist > 0) {
+          camRadius *= lastTouchDist / dist;
+          camRadius = Math.max(7.5, Math.min(26, camRadius));
+          updateCameraPosition();
+        }
+        lastTouchDist = dist;
+        e.preventDefault();
+      }
+    }
+
+    function onTouchEnd() {
+      isDragging = false;
+      lastTouchDist = 0;
+    }
+
+    // ============================================================
+    // UI UPDATES
+    // ============================================================
+    function updateUI() {
+      // Turn indicator
+      const turnText = document.getElementById('turn-text');
+      const turnDot = document.getElementById('turn-dot');
+
+      if (gameOver) {
+        turnText.textContent = 'Game Over';
+        turnDot.style.backgroundColor = '#64748b';
+      } else {
+        const isWhiteTurn = currentTurn === 'w';
+        turnText.textContent = isWhiteTurn ? "White's turn" : "Black's turn";
+        turnDot.style.backgroundColor = isWhiteTurn ? '#f2e9d8' : '#2f2722';
+        turnDot.style.border = isWhiteTurn ? '1px solid #555' : 'none';
+      }
+
+      // Captured pieces
+      const capW = document.getElementById('captured-white');
+      const capB = document.getElementById('captured-black');
+      capW.innerHTML = '';
+      capB.innerHTML = '';
+
+      capturedWhite.forEach(t => {
+        const span = document.createElement('span');
+        span.className = 'piece-captured';
+        span.textContent = UNICODE['w' + t];
+        capW.appendChild(span);
+      });
+      capturedBlack.forEach(t => {
+        const span = document.createElement('span');
+        span.className = 'piece-captured';
+        span.textContent = UNICODE['b' + t];
+        capB.appendChild(span);
+      });
+
+      // Move history
+      const historyEl = document.getElementById('move-history');
+      const countEl = document.getElementById('move-count');
+      historyEl.innerHTML = '';
+      countEl.textContent = moveHistory.length;
+
+      moveHistory.forEach((move, idx) => {
+        const div = document.createElement('div');
+        div.className = `flex items-center gap-x-2 px-2 py-px rounded hover:bg-white/5 ${idx % 2 === 0 ? '' : 'bg-white/5'}`;
+
+        const num = document.createElement('span');
+        num.className = 'font-mono w-5 text-right text-white/40 text-xs';
+        num.textContent = `${Math.floor(idx / 2) + 1}.`;
+
+        const notation = document.createElement('span');
+        notation.className = 'flex-1 font-medium tracking-wide';
+        notation.textContent = moveToNotation(move);
+
+        if (move.check) {
+          const chk = document.createElement('span');
+          chk.className = 'text-rose-400 font-bold';
+          chk.textContent = '+';
+          notation.appendChild(chk);
+        }
+
+        div.appendChild(num);
+        div.appendChild(notation);
+        historyEl.appendChild(div);
+      });
+
+      historyEl.scrollTop = historyEl.scrollHeight;
+
+      // Status line
+      const statusEl = document.getElementById('game-status');
+      if (gameOver) {
+        statusEl.textContent = '';
+      } else if (isInCheck(currentTurn)) {
+        statusEl.textContent = 'CHECK!';
+        statusEl.className = 'font-semibold text-rose-400 tracking-wide';
+      } else {
+        statusEl.textContent = '';
+        statusEl.className = 'font-medium text-emerald-400';
+      }
+
+      // Undo button state
+      document.getElementById('undo-btn').disabled = moveHistory.length === 0 || !!promotionPending;
+    }
+
+    function moveToNotation(move) {
+      const files = 'abcdefgh';
+      const from = files[move.from.file] + (move.from.rank + 1);
+      const to = files[move.to.file] + (move.to.rank + 1);
+
+      let prefix = '';
+      if (move.castling === 'kingside') return 'O-O';
+      if (move.castling === 'queenside') return 'O-O-O';
+
+      if (move.piece.type !== 'p') {
+        prefix = move.piece.type.toUpperCase();
+        if (move.piece.type === 'n') prefix = 'N';
+      } else if (move.captured) {
+        prefix = files[move.from.file];
+      }
+
+      const capture = move.captured ? '×' : '';
+      return `${prefix}${capture}${to}`;
+    }
+
+    // ============================================================
+    // GAME FLOW
+    // ============================================================
+    function newGame() {
+      // Cleanup scene pieces
+      pieceMeshes.forEach(m => scene.remove(m));
+      pieceMeshes = [];
+      legalMoveMarkers.forEach(m => scene.remove(m));
+      legalMoveMarkers = [];
+      boardSquares.forEach(s => scene.remove(s));
+      // Recreate board in case (cheap)
+      createBoard();
+
+      // Reset state
+      board = [];
+      currentTurn = 'w';
+      moveHistory = [];
+      capturedWhite = [];
+      capturedBlack = [];
+      castlingRights = { wK: true, wQ: true, bK: true, bQ: true };
+      enPassantTarget = null;
+      gameOver = false;
+      promotionPending = null;
+      selectedPiece = null;
+
+      setupInitialPosition();
+      resetCamera();
+      updateUI();
+      clearSelection();
+
+      // Hide modals
+      document.getElementById('promotion-modal').classList.add('hidden');
+      hideGameOver();
+    }
+
+    function undoMove() {
+      if (moveHistory.length === 0 || gameOver || promotionPending) return;
+
+      // Very simple undo: reload previous position by replaying from start (good enough for this scope)
+      const historyCopy = [...moveHistory];
+      newGame();
+
+      // Replay all but last move
+      historyCopy.pop();
+      historyCopy.forEach(m => {
+        // We have to re-execute without side effects where possible
+        const piece = getPieceAt(m.from.file, m.from.rank);
+        if (!piece) return;
+
+        // Simplified re-execution
+        setPieceAt(m.to.file, m.to.rank, piece);
+        setPieceAt(m.from.file, m.from.rank, null);
+
+        if (m.captured) {
+          // Remove captured from captured lists (last occurrence)
+          const capList = m.captured.color === 'w' ? capturedWhite : capturedBlack;
+          const idx = capList.lastIndexOf(m.captured.type);
+          if (idx !== -1) capList.splice(idx, 1);
+        }
+
+        if (m.castling) {
+          // Undo rook as well
+          const rHome = piece.color === 'w' ? 0 : 7;
+          if (m.castling === 'kingside') {
+            const rook = getPieceAt(6, rHome);
+            setPieceAt(7, rHome, rook);
+            setPieceAt(6, rHome, null);
+          } else {
+            const rook = getPieceAt(3, rHome);
+            setPieceAt(0, rHome, rook);
+            setPieceAt(3, rHome, null);
+          }
+        }
+
+        currentTurn = piece.color === 'w' ? 'b' : 'w';
+      });
+
+      // Now rebuild all meshes from board state
+      pieceMeshes.forEach(m => scene.remove(m));
+      pieceMeshes = [];
+
+      for (let f = 0; f < 8; f++) {
+        for (let r = 0; r < 8; r++) {
+          const p = board[f][r];
+          if (p) {
+            const mesh = createPieceMesh(p.type, p.color);
+            mesh.position.set(f - 3.5, PIECE_BASE_Y, 7 - r - 3.5);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            pieceMeshes.push(mesh);
+          }
+        }
+      }
+
+      // Rebuild captured displays (already updated via pop above)
+      updateUI();
+    }
+
+    function showGameOver(winner, reason) {
+      const modal = document.getElementById('game-over-modal');
+      const title = document.getElementById('game-over-title');
+      const sub = document.getElementById('game-over-subtitle');
+
+      if (reason === 'checkmate') {
+        title.textContent = `${winner} wins`;
+        sub.textContent = 'by checkmate';
+      } else {
+        title.textContent = 'Draw';
+        sub.textContent = 'stalemate';
+      }
+      modal.classList.remove('hidden');
+    }
+
+    function hideGameOver() {
+      document.getElementById('game-over-modal').classList.add('hidden');
+    }
+
+    // ============================================================
+    // MAIN RENDER LOOP
+    // ============================================================
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    // ============================================================
+    // BOOTSTRAP
+    // ============================================================
+    function startGame() {
+      initTailwind();
+      initThree();
+      createBoard();
+      setupInitialPosition();
+      resetCamera();
+      updateUI();
+
+      // Kick off render loop
+      animate();
+
+      // Welcome message in console for devs
+      console.log('%c[3D Chess] Ready. Use mouse to orbit camera, click pieces to play.', 'color:#555');
+    }
+
+    // Auto-start
+    window.addEventListener('DOMContentLoaded', startGame);
+
+    // Expose a couple helpers for debugging
+    window.CHESS_DEBUG = {
+      resetCamera, newGame, get board() { return board; }
+    };
+  </script>
+</body>
+</html>
