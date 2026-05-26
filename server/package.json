@@ -1,0 +1,13 @@
+{
+  "name": "grok-3d-chess-server",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal LAN WebSocket server for grok-3d-chess",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  }
+}

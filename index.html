@@ -184,6 +184,29 @@
         <div class="bg-white/5 border border-white/10 rounded-2xl p-3 text-[10px] text-white/50 leading-tight">
           Standard rules with castling, en passant &amp; promotion.
         </div>
+
+        <!-- LAN Multiplayer (v2 - Experimental) -->
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-3 mt-2">
+          <div class="text-[10px] uppercase tracking-[0.5px] font-semibold text-white/50 mb-2">LAN Multiplayer (Experimental)</div>
+          
+          <div class="flex flex-col gap-2">
+            <button onclick="hostLANGame()" 
+                    class="w-full py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 rounded-xl font-medium transition">
+              Host Game
+            </button>
+            
+            <div class="flex gap-1">
+              <input id="join-ip" type="text" placeholder="192.168.1.42:8765" 
+                     class="flex-1 bg-black/40 text-xs px-2 py-1 rounded-xl border border-white/10 focus:outline-none">
+              <button onclick="joinLANGame()" 
+                      class="px-3 text-xs bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition">
+                Join
+              </button>
+            </div>
+          </div>
+          
+          <div id="multiplayer-status" class="text-[10px] text-white/40 mt-1.5 min-h-[14px]"></div>
+        </div>
       </div>
 
     </div>  <!-- end main flex game area -->
@@ -2152,6 +2175,171 @@
     window.CHESS_DEBUG = {
       resetCamera, newGame, get board() { return board; }
     };
+
+    // ============================================================
+    // LAN MULTIPLAYER (v2 - Simplest Possible Version)
+    // ============================================================
+    let ws = null;
+    let isHost = false;
+    let myColor = null;
+
+    function updateMultiplayerStatus(text) {
+      const el = document.getElementById('multiplayer-status');
+      if (el) el.textContent = text;
+    }
+
+    function hostLANGame() {
+      updateMultiplayerStatus('Starting host mode...');
+      
+      // For the simplest version, we instruct the user to run the server manually
+      const instructions = `Run this in terminal from the project folder:\n\n  cd server && npm start\n\nThen tell the other player your local IP (e.g. 192.168.1.42)`;
+      
+      alert(instructions);
+      
+      // As host, we also act as a client connected to localhost for now
+      // (In a real version the host would also connect to their own server)
+      const defaultHost = 'ws://localhost:8765';
+      
+      if (confirm('Connect to local server now? (Run the server first)')) {
+        connectToServer(defaultHost, true);
+      } else {
+        updateMultiplayerStatus('Host instructions shown. Run the server and join manually.');
+      }
+    }
+
+    function joinLANGame() {
+      const input = document.getElementById('join-ip').value.trim();
+      if (!input) {
+        alert('Please enter IP:port (example: 192.168.1.42:8765)');
+        return;
+      }
+
+      // Convert IP:port to ws:// URL
+      let url = input;
+      if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
+        url = 'ws://' + url;
+      }
+
+      updateMultiplayerStatus('Connecting to ' + input + '...');
+      connectToServer(url, false);
+    }
+
+    function connectToServer(url, asHost) {
+      try {
+        ws = new WebSocket(url);
+
+        ws.onopen = () => {
+          isHost = asHost;
+          updateMultiplayerStatus('Connected as ' + (asHost ? 'Host (White)' : 'Guest'));
+          console.log('[LAN] Connected to', url);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            handleNetworkMessage(msg);
+          } catch (e) {
+            console.error('Bad network message', event.data);
+          }
+        };
+
+        ws.onclose = () => {
+          updateMultiplayerStatus('Disconnected');
+          ws = null;
+          isHost = false;
+          myColor = null;
+        };
+
+        ws.onerror = (err) => {
+          console.error('WebSocket error', err);
+          updateMultiplayerStatus('Connection failed');
+        };
+
+      } catch (e) {
+        updateMultiplayerStatus('Invalid address');
+        console.error(e);
+      }
+    }
+
+    function handleNetworkMessage(msg) {
+      if (msg.type === 'welcome') {
+        myColor = msg.color;
+        updateMultiplayerStatus('Connected as ' + (myColor === 'w' ? 'White' : 'Black'));
+        return;
+      }
+
+      if (msg.type === 'gameStart') {
+        updateMultiplayerStatus('Game started! You are ' + (msg.yourColor === 'w' ? 'White' : 'Black'));
+        // In a real version we would sync full state here
+        return;
+      }
+
+      if (msg.type === 'move') {
+        // Apply move received from network
+        // For the simplest version we trust the server and just apply it
+        const from = algebraicToCoords(msg.from);
+        const to = algebraicToCoords(msg.to);
+
+        if (from && to) {
+          // Directly apply without full validation on client (server is authority in real version)
+          const movingPiece = getPieceAt(from.file, from.rank);
+          if (movingPiece) {
+            setPieceAt(to.file, to.rank, movingPiece);
+            setPieceAt(from.file, from.rank, null);
+            // Very rough visual update - in real version we'd do proper animation + state sync
+            // For now just force a re-render by clearing selection
+            clearSelection();
+            updateUI();
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'opponentDisconnected') {
+        updateMultiplayerStatus('Opponent left');
+        alert('Opponent disconnected');
+      }
+    }
+
+    // Very basic algebraic notation helpers for the simplest version
+    function algebraicToCoords(alg) {
+      if (!alg || alg.length < 2) return null;
+      const file = alg.charCodeAt(0) - 97; // a=0
+      const rank = parseInt(alg[1]) - 1;
+      if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+      return { file, rank };
+    }
+
+    function coordsToAlgebraic(file, rank) {
+      return String.fromCharCode(97 + file) + (rank + 1);
+    }
+
+    // Override executeMove slightly for multiplayer (very hacky for first version)
+    const originalExecuteMove = executeMove;
+    window.executeMove = function(fromFile, fromRank, toFile, toRank, moveData = {}) {
+      // If we're in a multiplayer game, send the move to the server instead of executing locally
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const from = coordsToAlgebraic(fromFile, fromRank);
+        const to = coordsToAlgebraic(toFile, toRank);
+        
+        ws.send(JSON.stringify({
+          type: 'move',
+          from,
+          to,
+          promotion: moveData.promotion || null
+        }));
+        
+        // Don't execute locally - wait for server to broadcast it back
+        // (In this super simple version we just trust it)
+        clearSelection();
+        return true;
+      }
+
+      // Normal single-player behavior
+      return originalExecuteMove(fromFile, fromRank, toFile, toRank, moveData);
+    };
+
+    console.log('%c[LAN] Multiplayer (experimental) functions loaded. Use Host/Join buttons.', 'color:#0a0');
   </script>
 </body>
 </html>
